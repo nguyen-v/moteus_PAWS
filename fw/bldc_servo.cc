@@ -116,6 +116,44 @@ constexpr float g_thermistor_lookup[] = {
   197.66f, // 3968
 };
 
+// We use the motor temp input as an analog input for pressure sensors
+// Ideally it would be a LUT giving real forces in [N]. Currently, we just have
+// a linear fit.
+constexpr float g_pressure_lookup[] = {
+  0, // 0
+  4.f, // 128
+  8.f, // 256
+  12.f, // 384
+  16.f, // 512
+  20.f, // 640
+  24.f, // 768
+  28.f, // 896
+  32.f, // 1024
+  36.f, // 1152
+  40.f, // 1280
+  44.f, // 1408
+  48.f, // 1536
+  52.f, // 1664
+  56.f, // 1792
+  60.f, // 1920
+  64.f, // 2048
+  68.f, // 2176
+  72.f, // 2304
+  76.f, // 2432
+  80.f, // 2560
+  84.f, // 2688
+  88.f, // 2816
+  92.f, // 2944
+  96.f, // 3072
+  100.f, // 3200
+  104.f, // 3328
+  108.f, // 3456
+  112.f, // 3584
+  116.f, // 3712
+  120.f, // 3840
+  124.f, // 3968
+};
+
 template <typename Array>
 int MapConfig(const Array& array, int value) {
   static_assert(sizeof(array) > 0);
@@ -1098,11 +1136,30 @@ class BldcServo::Impl {
                 static_cast<float>(next_value - this_value);
           };
 
+      constexpr size_t size_pressure_table =
+          sizeof(g_pressure_lookup) / sizeof(*g_pressure_lookup);
+
+      const auto calculate_pressure =
+          [&](uint16_t adc_raw) {
+            const size_t offset = std::max<size_t>(
+                1, std::min<size_t>(
+                    size_pressure_table - 2,
+                    adc_raw * size_pressure_table / adc_max));
+            const int16_t this_value = offset * adc_max / size_pressure_table;
+            const int16_t next_value = (offset + 1) * adc_max / size_pressure_table;
+            const float press1 = g_pressure_lookup[offset];
+            const float press2 = g_pressure_lookup[offset + 1];
+            return press1 +
+                (press2 - press1) *
+                static_cast<float>(adc_raw - this_value) /
+                static_cast<float>(next_value - this_value);
+          };
+
       status_.fet_temp_C = calculate_temp(status_.adc_fet_temp_raw);
       ISR_UpdateFilteredValue(status_.fet_temp_C, &status_.filt_fet_temp_C, 0.01f);
 
       if (config_.enable_motor_temperature) {
-        status_.motor_temp_C = calculate_temp(status_.adc_motor_temp_raw);
+        status_.motor_temp_C = calculate_pressure(status_.adc_motor_temp_raw);
         ISR_UpdateFilteredValue(status_.motor_temp_C, &status_.filt_motor_temp_C, 0.01f);
       } else {
         status_.motor_temp_C = status_.filt_motor_temp_C = 0.0f;
